@@ -17,10 +17,17 @@ import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
+/**
+ * This API was possible by leonardost, check his api out
+ * @see <a href="https://github.com/leonardosnt/BungeeChannelApi/blob/master/src/main/java/io/github/leonardosnt/bungeechannelapi/BungeeChannelApi.java">leonardosnt's api</a>
+ * @see <a href="https://www.spigotmc.org/wiki/bukkit-bungee-plugin-messaging-channel/">Bukkit and bungee plugin channel/</a>
+ */
 public class BungeeMessageAPI{
     private final Plugin plugin;
-    private final WeakHashMap<Pair<String, String>, Queue<CompletableFuture<?>>> callbackMap = new WeakHashMap<>();
+    private final WeakHashMap<Pair<String, String>, Queue<Consumer<?>>> callbackMap = new WeakHashMap<>();
     private final PluginMessageListener messageListener;
 
     /**
@@ -47,20 +54,21 @@ public class BungeeMessageAPI{
         sendPluginMessage(new String[]{"Connect", servername}, player);
     }
 
-    public CompletableFuture<InetSocketAddress> IP(Player player) {
-        return (CompletableFuture<InetSocketAddress>) getFuture1("IP", player);
+    public CompletableFuture<InetSocketAddress>IP(Player player) {
+        sendPluginMessage(new String[]{"IP"}, player);
+        callbackMap.compute(new Pair<>("IP", player.getName()), computeQueueValue(consumer));
     }
 
     public CompletableFuture<Pair<String, Integer>> PlayerCount(String servername) {
-        return (CompletableFuture<Pair<String, Integer>>) getFuture2(new String[]{"PlayerCount", servername}, null);
+        sendPluginMessage(new String[]{"PlayerCount", servername}, null);
     }
 
     public CompletableFuture<Pair<String, String[]>> PlayerList(String servername) {
-        return (CompletableFuture<Pair<String, String[]>>) getFuture2(new String[]{"PlayerList", servername}, null);
+        sendPluginMessage(new String[]{"PlayerList", servername}, null);
     }
 
     public CompletableFuture<String[]> GetServers() {
-        return (CompletableFuture<String[]>) getFuture1("GetServers", null);
+        sendPluginMessage(new String[]{"GetServers"}, null);
     }
 
     public void Message(Player recipient, String message) {
@@ -68,7 +76,7 @@ public class BungeeMessageAPI{
     }
 
     public CompletableFuture<String> GetServer() {
-        return (CompletableFuture<String>) getFuture1("GetServer", null);
+        sendPluginMessage(new String[]{"GetServer"}, null);
     }
 
     public void unregister() {
@@ -96,52 +104,6 @@ public class BungeeMessageAPI{
             } else {
                 return;
             }
-
-            callbacks = callbackMap.get(pair);
-            if (callbacks != null) {
-                if (!callbacks.isEmpty()) {
-                    CompletableFuture<?> future = callbacks.poll();
-                    if (future == null) {
-                        return;
-                    }
-                    try {
-                        switch (subchannel) {
-                            case "IP":
-                                String ip = in.readUTF();
-                                int port = in.readInt();
-                                ((CompletableFuture<InetSocketAddress>) future).complete(new InetSocketAddress(ip, port));
-                                Bukkit.getLogger().info("done: ip");
-                                break;
-                            case "PlayerCount": {
-                                String server = in.readUTF();
-                                int playercount = in.readInt();
-                                ((CompletableFuture<Pair<String, Integer>>) future).complete(new Pair<>(server, playercount));
-                                Bukkit.getLogger().info("done: plrcount");
-                                break;
-                            }
-                            case "PlayerList": {
-                                String server = in.readUTF();
-                                String[] playerList = in.readUTF().split(", ");
-                                ((CompletableFuture<Pair<String, String[]>>) future).complete(new Pair<>(server, playerList));
-                                Bukkit.getLogger().info("done: plrlist");
-                                break;
-                            }
-                            case "GetServers":
-                                String[] serverList = in.readUTF().split(", ");
-                                ((CompletableFuture<String[]>) future).complete(serverList);
-                                Bukkit.getLogger().info("done: getservers");
-                                break;
-                            default:
-                                String servername = in.readUTF();
-                                ((CompletableFuture<String>) future).complete(servername);
-                                Bukkit.getLogger().info("done: getserver");
-                                break;
-                        }
-                    } catch (Exception ex) {
-                        future.completeExceptionally(ex);
-                    }
-                }
-            }
         }
     }
 
@@ -165,35 +127,5 @@ public class BungeeMessageAPI{
             p.sendPluginMessage(plugin, "BungeeCord", b.toByteArray());
         }
 
-    }
-
-    private BiFunction<Pair<String, String>, Queue<CompletableFuture<?>>, Queue<CompletableFuture<?>>> computeQueueValue(CompletableFuture<?> queueValue) {
-        return (key, value) -> {
-            if (value == null) value = new ArrayDeque<>();
-            value.add(queueValue);
-            return value;
-        };
-    }
-
-    private CompletableFuture<?> getFuture2(String[] list, @Nullable Player player) {
-        sendPluginMessage(list, player);
-        CompletableFuture<?> future = new CompletableFuture<>();
-
-        synchronized (callbackMap) {
-            callbackMap.compute(new Pair<>(list[0], list[1]), computeQueueValue(future));
-        }
-
-        return future;
-    }
-
-    private CompletableFuture<?> getFuture1(String string, @Nullable Player player) {
-        sendPluginMessage(new String[]{string}, player);
-        CompletableFuture<?> future = new CompletableFuture<>();
-
-        synchronized (callbackMap) {
-            callbackMap.compute(new Pair<>(string, ""), computeQueueValue(future));
-        }
-
-        return future;
     }
 }
