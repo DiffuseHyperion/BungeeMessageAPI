@@ -33,14 +33,9 @@ public class BungeeMessageAPI{
 
         messageListener = this::onPluginMessageReceived;
 
-        Messenger messenger = Bukkit.getServer().getMessenger();
-
-        // incase of any wild stuff
-        messenger.unregisterOutgoingPluginChannel(plugin, "BungeeCord");
-        messenger.unregisterIncomingPluginChannel(plugin, "BungeeCord", messageListener);
-
-        messenger.registerOutgoingPluginChannel(plugin, "BungeeCord");
-        messenger.registerIncomingPluginChannel(plugin, "BungeeCord", messageListener);
+        // in case of any wild stuff
+        unregister();
+        register();
     }
 
     public void Connect(Player player, String servername) {
@@ -78,6 +73,13 @@ public class BungeeMessageAPI{
         callbackMap.clear();
     }
 
+    public void register() {
+        Messenger messenger = Bukkit.getServer().getMessenger();
+        messenger.registerOutgoingPluginChannel(plugin, "BungeeCord");
+        messenger.registerIncomingPluginChannel(plugin, "BungeeCord", messageListener);
+        callbackMap.clear();
+    }
+
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
         if (!channel.equalsIgnoreCase("BungeeCord")) return;
 
@@ -98,49 +100,42 @@ public class BungeeMessageAPI{
             }
 
             callbacks = callbackMap.get(pair);
-            if (callbacks != null) {
-                if (!callbacks.isEmpty()) {
-                    CompletableFuture<?> future = callbacks.poll();
-                    if (future == null) {
-                        return;
+            if (callbacks == null || callbacks.isEmpty())  {
+                return;
+            }
+            CompletableFuture<?> future = callbacks.poll();
+            try {
+                switch (subchannel) {
+                    case "IP":
+                        String ip = in.readUTF();
+                        int port = in.readInt();
+                        ((CompletableFuture<InetSocketAddress>) future).complete(new InetSocketAddress(ip, port));
+                        break;
+                    case "PlayerCount": {
+                        String server = in.readUTF();
+                        int playercount = in.readInt();
+                        ((CompletableFuture<Pair<String, Integer>>) future).complete(new Pair<>(server, playercount));
+                        break;
                     }
-                    try {
-                        switch (subchannel) {
-                            case "IP":
-                                String ip = in.readUTF();
-                                int port = in.readInt();
-                                ((CompletableFuture<InetSocketAddress>) future).complete(new InetSocketAddress(ip, port));
-                                Bukkit.getLogger().info("done: ip");
-                                break;
-                            case "PlayerCount": {
-                                String server = in.readUTF();
-                                int playercount = in.readInt();
-                                ((CompletableFuture<Pair<String, Integer>>) future).complete(new Pair<>(server, playercount));
-                                Bukkit.getLogger().info("done: plrcount");
-                                break;
-                            }
-                            case "PlayerList": {
-                                String server = in.readUTF();
-                                String[] playerList = in.readUTF().split(", ");
-                                ((CompletableFuture<Pair<String, String[]>>) future).complete(new Pair<>(server, playerList));
-                                Bukkit.getLogger().info("done: plrlist");
-                                break;
-                            }
-                            case "GetServers":
-                                String[] serverList = in.readUTF().split(", ");
-                                ((CompletableFuture<String[]>) future).complete(serverList);
-                                Bukkit.getLogger().info("done: getservers");
-                                break;
-                            default:
-                                String servername = in.readUTF();
-                                ((CompletableFuture<String>) future).complete(servername);
-                                Bukkit.getLogger().info("done: getserver");
-                                break;
-                        }
-                    } catch (Exception ex) {
-                        future.completeExceptionally(ex);
+                    case "PlayerList": {
+                        String server = in.readUTF();
+                        String[] playerList = in.readUTF().split(", ");
+                        ((CompletableFuture<Pair<String, String[]>>) future).complete(new Pair<>(server, playerList));
+                        break;
                     }
+                    case "GetServers":
+                        String[] serverList = in.readUTF().split(", ");
+                        ((CompletableFuture<String[]>) future).complete(serverList);
+                        break;
+                    case "GetServer":
+                        String servername = in.readUTF();
+                        ((CompletableFuture<String>) future).complete(servername);
+                        break;
+                    default:
+                        Bukkit.getLogger().info("completed!");
                 }
+            } catch (Exception ex) {
+                future.completeExceptionally(ex);
             }
         }
     }
@@ -152,7 +147,8 @@ public class BungeeMessageAPI{
     private void sendPluginMessage(String[] messages, @Nullable Player p) {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
-        for (String s : messages) {
+        Bukkit.getLogger().info("msgs: " + Arrays.toString(messages));
+        for (String s: messages) {
             try {
                 out.writeUTF(s);
             } catch (IOException e) {
@@ -164,7 +160,7 @@ public class BungeeMessageAPI{
         } else {
             p.sendPluginMessage(plugin, "BungeeCord", b.toByteArray());
         }
-
+        Bukkit.getLogger().info("msg sent!");
     }
 
     private BiFunction<Pair<String, String>, Queue<CompletableFuture<?>>, Queue<CompletableFuture<?>>> computeQueueValue(CompletableFuture<?> queueValue) {
